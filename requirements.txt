@@ -9,4 +9,4 @@ google-generativeai==0.8.3
 tensorflow==2.18.0
 gunicorn==21.2.0
 scikit-learn==1.5.2
-Flask-Cors==2.1.5
+Flask-Cors==4.0.0
