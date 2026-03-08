@@ -37,8 +37,11 @@ soil_output_details = soil_interpreter.get_output_details()
 app = Flask(__name__)
 CORS(app)  # Enable CORS for all routes
 
-# Configure Gemini AI
-genai.configure(api_key="AIzaSyAPoJwlcdhh5HWikaC5ix_yLoTQ1WIk1mE")
+# Configure Gemini AI using environment variable to prevent leaks
+gemini_api_key = os.getenv("GEMINI_API_KEY")
+if not gemini_api_key:
+    print("WARNING: GEMINI_API_KEY environment variable is not set!")
+genai.configure(api_key=gemini_api_key)
 
 # Define the model and generation configuration
 generation_config = {
