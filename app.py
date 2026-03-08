@@ -7,6 +7,7 @@ import json
 import re
 import pandas as pd
 from flask import Flask, request, jsonify
+from flask_cors import CORS
 from skimage.feature import local_binary_pattern
 from skimage.feature import graycomatrix, graycoprops
 import google.generativeai as genai
@@ -34,6 +35,7 @@ soil_output_details = soil_interpreter.get_output_details()
 
 # Initialize Flask app
 app = Flask(__name__)
+CORS(app)  # Enable CORS for all routes
 
 # Configure Gemini AI
 genai.configure(api_key="AIzaSyBdACybaHJ_R7SLEWu9xZcuw5DZr03yGtE")
@@ -232,13 +234,45 @@ def hello():
 @app.route("/predict_npk", methods=["POST"])
 def predict_npk():
     try:
-        image_urls = request.json.get("image_urls", [])
-        if not image_urls:
-            return jsonify({"error": "Please provide me soil photo", "success": False}), 400
+        # Support both URL inputs and direct file uploads
+        image_urls = request.json.get("image_urls", []) if request.is_json else []
+        uploaded_files = request.files.getlist("images") if 'images' in request.files else []
+
+        if not image_urls and not uploaded_files:
+            return jsonify({"error": "Please provide either image URLs or upload soil photos", "success": False}), 400
 
         all_features = []
         class_confidences = []
 
+        # Process uploaded files directly
+        for file in uploaded_files:
+            try:
+                # Read the file directly into a numpy array
+                img_array = np.frombuffer(file.read(), np.uint8)
+                image = cv2.imdecode(img_array, cv2.IMREAD_COLOR)
+                
+                if image is None:
+                    return jsonify({"error": f"Failed to decode uploaded image: {file.filename}", "success": False}), 400
+
+                verify_result = is_soil_image(image)
+                # Check if the image contains soil
+                if not verify_result[0]:
+                    return jsonify({"error": f"Image {file.filename} does not contain soil.", "success": False}), 400
+
+                # Perform soil classification
+                predicted_class, confidence = classify_soil(verify_result[1])
+                class_confidences.append((predicted_class, confidence))
+
+                # Proceed to extract features for NPK analysis if confidence is high enough
+                if confidence >= 0.40:
+                    features = extract_features_from_image(image)
+                    all_features.append(features)
+                else:
+                    continue
+            except Exception as e:
+                return jsonify({"error": f"Error processing uploaded image {file.filename}: {str(e)}"}), 400
+
+        # Process Image URLs (Existing logic)
         for url in image_urls:
             try:
                 response = requests.get(url)
@@ -246,10 +280,14 @@ def predict_npk():
                 img_array = np.array(
                     bytearray(response.content), dtype=np.uint8)
                 image = cv2.imdecode(img_array, cv2.IMREAD_COLOR)
+                
+                if image is None:
+                    return jsonify({"error": f"Failed to decode image from {url}", "success": False}), 400
+
                 verify_result = is_soil_image(image)
                 # Check if the image contains soil
                 if not verify_result[0]:
-                    return jsonify({"error": f"Image at {url} does not contain soil.","Success": False, "url":url}), 400
+                    return jsonify({"error": f"Image at {url} does not contain soil.", "success": False, "url":url}), 400
 
                 # Perform soil classification
                 predicted_class, confidence = classify_soil(verify_result[1])
